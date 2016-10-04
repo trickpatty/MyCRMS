@@ -8,7 +8,7 @@ using System.Security.Claims;
 
 namespace MyCRMS_Identity.Configuration
 {
-    public class config
+    public class Config
     {
         // scopes define the resources in your system
         public static IEnumerable<Scope> GetScopes()
@@ -37,6 +37,7 @@ namespace MyCRMS_Identity.Configuration
                 new Client
                 {
                     ClientId = "client",
+                    ClientName = "Client Credentials Client",
                     AllowedGrantTypes = GrantTypes.ClientCredentials,
 
                     ClientSecrets = new List<Secret>
@@ -53,6 +54,7 @@ namespace MyCRMS_Identity.Configuration
                 new Client
                 {
                     ClientId = "ro.client",
+                    ClientName = "Resource Owner Password Grant Client",
                     AllowedGrantTypes = GrantTypes.ResourceOwnerPassword,
 
                     ClientSecrets = new List<Secret>
@@ -72,7 +74,7 @@ namespace MyCRMS_Identity.Configuration
                     ClientName = "MVC Client",
                     AllowedGrantTypes = GrantTypes.HybridAndClientCredentials,
 
-                    RequireConsent = true,
+                    RequireConsent = false,
 
                     ClientSecrets = new List<Secret>
                     {
@@ -93,6 +95,34 @@ namespace MyCRMS_Identity.Configuration
                         StandardScopes.OpenId.Name,
                         StandardScopes.Profile.Name,
                         StandardScopes.OfflineAccess.Name,
+                        "api1"
+                    }
+                },
+
+                new Client
+                {
+                    ClientId = "js",
+                    ClientName = "JavaScript Client",
+                    AllowedGrantTypes = GrantTypes.Implicit,
+                    AllowAccessTokensViaBrowser = true,
+
+                    RedirectUris = new List<string>
+                    {
+                        "http://localhost:5003/callback.html"
+                    },
+                    PostLogoutRedirectUris = new List<string>
+                    {
+                        "http://localhost:5003/index.html"
+                    },
+                    AllowedCorsOrigins = new List<string>
+                    {
+                        "http://localhost:5003"
+                    },
+
+                    AllowedScopes = new List<string>
+                    {
+                        StandardScopes.OpenId.Name,
+                        StandardScopes.Profile.Name,
                         "api1"
                     }
                 }

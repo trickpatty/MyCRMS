@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -11,8 +9,14 @@ using Microsoft.Extensions.Logging;
 using MyCRMS_Identity.Models;
 using MyCRMS_Identity.Models.AccountViewModels;
 using MyCRMS_Identity.Services;
+using IdentityServer4.Services;
+using Microsoft.AspNetCore.Http.Authentication;
+using MyCRMS_Identity.Controllers;
+using IdentityServer4.Models;
+using System.Text.Encodings.Web;
+using IdentityServer4.Stores;
 
-namespace MyCRMS_Identity.Controllers
+namespace IdentityServerWithAspNetIdentity.Controllers
 {
     [Authorize]
     public class AccountController : Controller
@@ -22,29 +26,103 @@ namespace MyCRMS_Identity.Controllers
         private readonly IEmailSender _emailSender;
         private readonly ISmsSender _smsSender;
         private readonly ILogger _logger;
+        private readonly IIdentityServerInteractionService _interaction;
+        private readonly IClientStore _clientStore;
+
 
         public AccountController(
+            IIdentityServerInteractionService interaction,
             UserManager<ApplicationUser> userManager,
             SignInManager<ApplicationUser> signInManager,
             IEmailSender emailSender,
             ISmsSender smsSender,
-            ILoggerFactory loggerFactory)
+            ILoggerFactory loggerFactory,
+            IClientStore clientStore)
         {
+            _interaction = interaction;
             _userManager = userManager;
             _signInManager = signInManager;
             _emailSender = emailSender;
             _smsSender = smsSender;
             _logger = loggerFactory.CreateLogger<AccountController>();
+            _clientStore = clientStore;
         }
 
         //
         // GET: /Account/Login
         [HttpGet]
         [AllowAnonymous]
-        public IActionResult Login(string returnUrl = null)
+        public async Task<IActionResult> Login(string returnUrl = null)
         {
-            ViewData["ReturnUrl"] = returnUrl;
-            return View();
+            var context = await _interaction.GetAuthorizationContextAsync(returnUrl);
+            if (context?.IdP != null)
+            {
+                // if IdP is passed, then bypass showing the login screen
+                return External(context.IdP, returnUrl);
+            }
+
+            var vm = await BuildLoginViewModelAsync(returnUrl, context);
+
+            if (vm.EnableLocalLogin == false && vm.ExternalProviders.Count() == 1)
+            {
+                // only one option for logging in
+                return External(vm.ExternalProviders.First().AuthenticationScheme, returnUrl);
+            }
+
+            return View(vm);
+        }
+
+        async Task<MyCRMS_Identity.Models.LoginViewModel> BuildLoginViewModelAsync(string returnUrl, AuthorizationRequest context)
+        {
+            var providers = HttpContext.Authentication.GetAuthenticationSchemes()
+                .Where(x => x.DisplayName != null)
+                .Select(x => new ExternalProvider
+                {
+                    DisplayName = x.DisplayName,
+                    AuthenticationScheme = x.AuthenticationScheme
+                });
+
+            var allowLocal = true;
+            if (context?.ClientId != null)
+            {
+                var client = await _clientStore.FindClientByIdAsync(context.ClientId);
+                if (client != null)
+                {
+                    allowLocal = client.EnableLocalLogin;
+
+                    if (client.IdentityProviderRestrictions != null && client.IdentityProviderRestrictions.Any())
+                    {
+                        providers = providers.Where(provider => client.IdentityProviderRestrictions.Contains(provider.AuthenticationScheme));
+                    }
+                }
+            }
+
+            return new MyCRMS_Identity.Models.LoginViewModel
+            {
+                EnableLocalLogin = allowLocal,
+                ReturnUrl = returnUrl,
+                Username = context?.LoginHint,
+                ExternalProviders = providers.ToArray()
+            };
+        }
+
+        /// <summary>
+        /// initiate roundtrip to external authentication provider
+        /// </summary>
+        [HttpGet]
+        public IActionResult External(string provider, string returnUrl)
+        {
+            if (returnUrl != null)
+            {
+                returnUrl = UrlEncoder.Default.Encode(returnUrl);
+            }
+            returnUrl = "/account/externalcallback?returnUrl=" + returnUrl;
+
+            // start challenge and roundtrip the return URL
+            return new ChallengeResult(provider, new AuthenticationProperties
+            {
+                RedirectUri = returnUrl
+            });
         }
 
         //
@@ -52,14 +130,14 @@ namespace MyCRMS_Identity.Controllers
         [HttpPost]
         [AllowAnonymous]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Login(LoginViewModel model, string returnUrl = null)
+        public async Task<IActionResult> Login(MyCRMS_Identity.Models.LoginInputModel model, string returnUrl = null)
         {
             ViewData["ReturnUrl"] = returnUrl;
             if (ModelState.IsValid)
             {
                 // This doesn't count login failures towards account lockout
                 // To enable password failures to trigger account lockout, set lockoutOnFailure: true
-                var result = await _signInManager.PasswordSignInAsync(model.Email, model.Password, model.RememberMe, lockoutOnFailure: false);
+                var result = await _signInManager.PasswordSignInAsync(model.Username, model.Password, isPersistent: false, lockoutOnFailure: false);
                 if (result.Succeeded)
                 {
                     _logger.LogInformation(1, "User logged in.");
@@ -67,7 +145,7 @@ namespace MyCRMS_Identity.Controllers
                 }
                 if (result.RequiresTwoFactor)
                 {
-                    return RedirectToAction(nameof(SendCode), new { ReturnUrl = returnUrl, RememberMe = model.RememberMe });
+                    return RedirectToAction(nameof(SendCode), new { ReturnUrl = returnUrl, RememberMe = false });
                 }
                 if (result.IsLockedOut)
                 {
@@ -128,14 +206,14 @@ namespace MyCRMS_Identity.Controllers
 
         //
         // POST: /Account/LogOff
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> LogOff()
-        {
-            await _signInManager.SignOutAsync();
-            _logger.LogInformation(4, "User logged out.");
-            return RedirectToAction(nameof(HomeController.Index), "Home");
-        }
+        //[HttpPost]
+        //[ValidateAntiForgeryToken]
+        //public async Task<IActionResult> LogOff()
+        //{
+        //    await _signInManager.SignOutAsync();
+        //    _logger.LogInformation(4, "User logged out.");
+        //    return RedirectToAction(nameof(HomeController.Index), "Home");
+        //}
 
         //
         // POST: /Account/ExternalLogin
@@ -434,6 +512,53 @@ namespace MyCRMS_Identity.Controllers
                 ModelState.AddModelError(string.Empty, "Invalid code.");
                 return View(model);
             }
+        }
+
+        /// <summary>
+        /// Show logout page
+        /// </summary>
+        [HttpGet]
+        public async Task<IActionResult> Logout(string logoutId)
+        {
+            var context = await _interaction.GetLogoutContextAsync(logoutId);
+            if (context?.ClientId != null)
+            {
+                // if the logout request is authenticated, it's safe to automatically sign-out
+                return await Logout(new LogoutViewModel { LogoutId = logoutId });
+            }
+
+            var vm = new LogoutViewModel
+            {
+                LogoutId = logoutId
+            };
+
+            return View(vm);
+        }
+
+        /// <summary>
+        /// Handle logout page postback
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Logout(LogoutViewModel model)
+        {
+            // delete authentication cookies
+            await _signInManager.SignOutAsync();
+
+            // set this so UI rendering sees an anonymous user
+            HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity());
+
+            // get context information (client name, post logout redirect URI and iframe for federated signout)
+            var logout = await _interaction.GetLogoutContextAsync(model.LogoutId);
+
+            var vm = new LoggedOutViewModel
+            {
+                PostLogoutRedirectUri = logout?.PostLogoutRedirectUri,
+                ClientName = logout?.ClientId,
+                SignOutIframeUrl = logout?.SignOutIFrameUrl
+            };
+
+            return View("LoggedOut", vm);
         }
 
         #region Helpers
