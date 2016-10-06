@@ -39,40 +39,102 @@ namespace MyCRMS_API.Models
         public Stamp CalculateStamp(DateTime date)
         {
             Observation obs = GetMostFertileOnDate(date);
-            
+
             Color stampColor = CalculateColor(obs);
             bool stampBaby = CalculateBaby(obs);
             int stampPCount = CalculatePCount(obs);
+
             return new Stamp(stampColor, stampBaby, stampPCount);
         }
 
         private int CalculatePCount(Observation obs)
         {
-            Observation tomorrowsObs = GetMostFertileOnDate(obs.Date.AddDays(1));
-
-            // Without data from the day before, we cannot compute the count
-            if (tomorrowsObs == null)
+            if (obs != null)
             {
-                return -1;
+                Observation tomorrow = GetMostFertileOnDate(obs.Date.AddDays(1));
+                Observation yesterday = GetMostFertileOnDate(obs.Date.AddDays(-1));
+                int yesterdayPCount = CalculatePCount(yesterday);
+
+                // Without data from the day before, we cannot compute the count
+                if (yesterday == null)
+                {
+                    return -1;
+                }
+
+
+                if (
+                    // D4: 3 or more days of non-Peak mucus pre-Peak - plus count 3
+                    (GetPreviousObservations(obs, 3).All(prevObs => prevObs.IsNonPeakMucus()) && !tomorrow.IsNonPeakMucus()) ||
+                    // D5: Any single day of Peak mucus - plus count 3
+                    (obs.IsPeakType() && !tomorrow.IsPeakType()) ||
+                    // D6: Any unusual bleeding - plus count 3
+                    (GetPreviousObservations(obs, 2).All(prevObs => prevObs.ObservedRed != "") && obs.ObservedRed == "" && IsPostPeak(obs))
+                    )
+                {
+                    return 0;
+                }
+
+                // If we don't match a "P" day, but yesterday has a count, then coutinue the count
+                if (yesterdayPCount >= 0 && yesterdayPCount < 3)
+                {
+                    return yesterdayPCount + 1;
+                }
             }
 
-            // D4: 3 or more days of non-Peak mucus pre-Peak - plus count 3
-            if(GetPreviousObservations(obs, 3).All(prevObs => prevObs.IsNonPeakMucus()) && !tomorrowsObs.IsNonPeakMucus())
-            {
-                return 0;
-            }
-
-            // If today is a peak day, check to see if it's THE peak day
-            // D5 - Any single day of Peak mucus - plus 3 count
-            if (obs.IsPeakType() && !tomorrowsObs.IsPeakType())
-            {
-                return 0;
-            }
-            
-
-
-
+            // No conditions met, so today is not a counting day
             return -1;
+        }
+
+        private bool IsPostPeak(Observation obs)
+        {
+            Observation start = GetMostFertileOnDate(GetCycleStart(obs.Date));
+            Observation peak = Observations.Where(prevObs => prevObs.Date > start.Date && prevObs.Date < obs.Date && prevObs.IsPeakType() == true).First();
+
+            if (obs.Date > peak.Date)
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        public DateTime GetCycleStart(DateTime date)
+        {
+            DateTime firstDate = Observations.OrderBy(obs => obs.Date).First().Date;
+            DateTime lastDate = Observations.OrderBy(obs => obs.Date).Last().Date;
+            if (firstDate > date)
+            {
+                date = firstDate;
+            }
+
+            if(lastDate < date)
+            {
+                date = lastDate;
+            }
+
+            Observation today = GetMostFertileOnDate(date);
+            Observation yesterday = GetMostFertileOnDate(today.Date.AddDays(-1));
+
+            if(yesterday == null)
+            {
+                return today.Date;
+            }
+
+            DateTime redDate = Observations.OrderByDescending(prevObs => prevObs.Date).Where(prevObs => (prevObs.ObservedRed == "H" || prevObs.ObservedRed == "M") && prevObs.Date <= today.Date).First().Date;
+
+            Observation red0 = GetMostFertileOnDate(redDate);
+            Observation red1 = GetMostFertileOnDate(redDate.AddDays(-1));
+
+            if(red1 == null || (red1.ObservedRed != "H" && red1.ObservedRed != "M"))
+            {
+                return red0.Date;
+            }
+            else
+            {
+                return GetCycleStart(red1.Date);
+            }
         }
 
         private bool CalculateBaby(Observation obs)
@@ -81,9 +143,15 @@ namespace MyCRMS_API.Models
             switch (color)
             {
                 case Color.Green:
-                    // if PCount > 0 then true
-                    // else false
-                    return false;
+                    // if PCount >= 0 then true
+                    if ( (obs.IsNonPeakMucus()) || (CalculatePCount(obs) >= 0) )
+                    {
+                        return true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
                 case Color.Red:
                     return false;
                 case Color.White:
@@ -97,18 +165,29 @@ namespace MyCRMS_API.Models
 
         private Color CalculateColor(Observation obs)
         {
-            //TODO: Include calculation for matching YBR
-            if (obs.ObservedRed != "")
+            if (obs != null)
             {
-                return Color.Red;
-            }
-            else if (obs.ObservedNumber == 10 || obs.ObservedLetter == Letter.K || obs.ObservedLetter == Letter.L)
-            {
-                return Color.White;
-            }
-            else if (obs.ObservedNumber <= 4)
-            {
-                return Color.Green;
+                Color? ybrColor = GetYellowBabyRuleColor(obs);
+                if (ybrColor != null)
+                {
+                    return (Color)ybrColor;
+                }
+                else if (obs.ObservedRed != "")
+                {
+                    return Color.Red;
+                }
+                else if (obs.ObservedNumber == 10 || obs.ObservedLetter == Letter.K || obs.ObservedLetter == Letter.L)
+                {
+                    return Color.White;
+                }
+                else if (obs.ObservedNumber <= 4)
+                {
+                    return Color.Green;
+                }
+                else
+                {
+                    return Color.White;
+                }
             }
             else
             {
@@ -116,9 +195,34 @@ namespace MyCRMS_API.Models
             }
         }
 
+
+        private Color? GetYellowBabyRuleColor(Observation obs)
+        {
+            if (YellowBabyRules != null)
+            {
+                foreach (var ybr in YellowBabyRules.Where(ybr => ybr.EffectiveDate <= obs.Date).OrderByDescending(ybr => ybr.EffectiveDate))
+                {
+                    if ((obs.ObservedNumber.ToString() + obs.ObservedLetter.ToString()).Contains(ybr.Rule))
+                    {
+                        bool postPeak = IsPostPeak(obs);
+                        if (
+                            (ybr.Timeframe == YBRTimeframe.PrePeak && !postPeak) ||
+                            (ybr.Timeframe == YBRTimeframe.PostPeak && postPeak)
+                            )
+                        {
+                            return ybr.ChangeToColor;
+                        }
+
+                    }
+                }
+            }
+
+            return null;
+        }
+
         private IEnumerable<Observation> GetPreviousObservations(Observation obs, int previous)
         {
-            if(previous == 0 || obs == null)
+            if (previous == 0 || obs == null)
             {
                 return new List<Observation>() { obs };
             }

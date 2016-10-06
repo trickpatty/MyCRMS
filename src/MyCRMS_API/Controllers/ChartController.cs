@@ -21,7 +21,7 @@ namespace MyCRMS_API.Controllers
             carisChart.OwnerName = "cari@kearney.tk";
 
             Observation obs1 = new Observation();
-            obs1.Date = DateTime.Now.AddDays(-2);
+            obs1.Date = DateTime.Now.AddDays(-3);
             obs1.Id = 1;
             obs1.Interc = false;
             obs1.Multiplier = 4;
@@ -31,7 +31,7 @@ namespace MyCRMS_API.Controllers
             obs1.UserId = 1;
 
             Observation obs2 = new Observation();
-            obs2.Date = DateTime.Now.AddDays(-1);
+            obs2.Date = DateTime.Now.AddDays(-2);
             obs2.Id = 2;
             obs2.Interc = true;
             obs2.Multiplier = 1;
@@ -41,7 +41,7 @@ namespace MyCRMS_API.Controllers
             obs2.UserId = 1;
 
             Observation obs3 = new Observation();
-            obs3.Date = DateTime.Now;
+            obs3.Date = DateTime.Now.AddDays(-1);
             obs3.Id = 3;
             obs3.Interc = true;
             obs3.Multiplier = 4;
@@ -50,13 +50,24 @@ namespace MyCRMS_API.Controllers
             obs3.ObservedRed = "";
             obs3.UserId = 1;
 
+            Observation obs4 = new Observation();
+            obs4.Date = DateTime.Now;
+            obs4.Id = 4;
+            obs4.Interc = false;
+            obs4.Multiplier = 4;
+            obs4.ObservedLetter = Letter.NA;
+            obs4.ObservedNumber = 4;
+            obs4.ObservedRed = "";
+            obs4.UserId = 1;
+
             List<Observation> observations = new List<Observation>();
             observations.Add(obs1);
             observations.Add(obs2);
             observations.Add(obs3);
+            observations.Add(obs4);
             carisChart.Observations = observations;
 
-            return new JsonResult(carisChart.GetMostFertileOnDate(DateTime.Now.AddDays(-1)));
+            return new JsonResult(carisChart.Observations(obs => carisChart.CalculateStamp(obs.Date));
         }
 
         // GET api/values/5

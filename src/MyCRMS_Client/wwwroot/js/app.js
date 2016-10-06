@@ -41,7 +41,7 @@ function login() {
 
 function api() {
     mgr.getUser().then(function (user) {
-        var url = "http://localhost:5001/api/person";
+        var url = "http://localhost:5001/api/chart";
         //var url = "http://localhost:5001/connect/userinfo";
 
         var xhr = new XMLHttpRequest();
