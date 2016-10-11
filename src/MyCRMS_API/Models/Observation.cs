@@ -7,7 +7,7 @@ namespace MyCRMS_API.Models
 {
     public class Observation
     {
-        public int Id { get; set; }
+        public int ID { get; set; }
         public int UserId { get; set; }
         public string ObservedRed { get; set; }
         public int ObservedNumber { get; set; }

@@ -7,7 +7,7 @@ namespace MyCRMS_API.Models
 {
     public class Chart
     {
-        public int Id { get; set; }
+        public int ID { get; set; }
         public string OwnerName { get; set; }
         public virtual ICollection<Observation> Observations { get; set; }
         public ICollection<YellowBabyRule> YellowBabyRules { get; set; }

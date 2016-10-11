@@ -7,8 +7,8 @@ namespace MyCRMS_API.Models
 {
     public class YellowBabyRule
     {
-        public int Id { get; set; }
-        public int UserId { get; set; }
+        public int ID { get; set; }
+        //public int UserId { get; set; }
         public string Rule { get; set; }
         public YBRTimeframe Timeframe { get; set; }
         public Color ChangeToColor { get; set; }
